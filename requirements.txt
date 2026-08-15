@@ -1,0 +1,6 @@
+# Core API runtime dependencies.
+# Canonical dependency constraints are also declared in pyproject.toml.
+fastapi>=0.115,<1
+pydantic>=2.10,<3
+uvicorn>=0.34,<1
+

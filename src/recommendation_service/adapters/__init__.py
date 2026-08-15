@@ -1,0 +1,2 @@
+"""Local and infrastructure adapters."""
+

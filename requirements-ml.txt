@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# Arm B (LightGBM) and Arm C (PyTorch) dependencies.
+lightgbm>=4.6,<5
+numpy>=2.1,<3
+torch>=2.6,<3
+
