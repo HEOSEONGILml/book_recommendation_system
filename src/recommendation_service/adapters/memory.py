@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from math import sqrt
 
 from ..config import Settings
 from ..domain import Format, Item, Policy, RankerArm, UserProfile
@@ -22,12 +23,22 @@ class InMemoryCatalogRepository:
             reverse=True,
         )[:limit]
 
-    def cold_start_candidates(self, genres: set[str], limit: int) -> list[Item]:
+    def similar_candidates(self, anchor_work_ids: set[str], limit: int) -> list[Item]:
+        anchors = [self._by_work[work_id] for work_id in anchor_work_ids if work_id in self._by_work]
         return sorted(
-            (item for item in self._items if item.genre in genres),
-            key=lambda item: item.popularity,
+            (item for item in self._items if item.work_id not in anchor_work_ids),
+            key=lambda item: max(
+                (self._cosine(item.embedding, anchor.embedding) for anchor in anchors),
+                default=0.0,
+            ),
             reverse=True,
         )[:limit]
+
+    @staticmethod
+    def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
+        numerator = sum(a * b for a, b in zip(left, right, strict=True))
+        denominator = sqrt(sum(a * a for a in left)) * sqrt(sum(b * b for b in right))
+        return numerator / denominator if denominator else 0.0
 
     def exploration_candidates(self, limit: int) -> list[Item]:
         return sorted(self._items, key=lambda item: item.popularity)[:limit]
@@ -43,11 +54,11 @@ class InMemoryUserRepository:
     def get_profile(self, user_id: str) -> UserProfile:
         profile = self._profiles.setdefault(
             user_id,
-            UserProfile(user_id=user_id, onboarding_genres={"소설", "경제"}),
+            UserProfile(user_id=user_id, library_work_ids={"w_005", "w_011"}),
         )
         return replace(
             profile,
-            onboarding_genres=set(profile.onboarding_genres),
+            library_work_ids=set(profile.library_work_ids),
             consumed_work_ids=set(profile.consumed_work_ids),
             disliked_work_ids=set(profile.disliked_work_ids),
             genre_affinity=dict(profile.genre_affinity),

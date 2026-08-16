@@ -15,7 +15,6 @@ class Format(StrEnum):
 class CandidateSource(StrEnum):
     CF = "cf"
     CONTENT = "content"
-    COLD_START = "cold_start"
     POPULAR = "popular"
     EXPLORATION = "exploration"
 
@@ -45,7 +44,7 @@ class Item:
 class UserProfile:
     user_id: str
     age: int | None = None
-    onboarding_genres: set[str] = field(default_factory=set)
+    library_work_ids: set[str] = field(default_factory=set)
     consumed_work_ids: set[str] = field(default_factory=set)
     disliked_work_ids: set[str] = field(default_factory=set)
     genre_affinity: dict[str, float] = field(default_factory=dict)

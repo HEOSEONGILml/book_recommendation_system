@@ -14,7 +14,7 @@ def test_arm_a_training_and_artifact(tmp_path: Path) -> None:
     for index in range(100):
         affinity = index / 100
         features = {name: 0.0 for name in FEATURE_NAMES}
-        features.update(bias=1.0, genre_affinity=affinity, source_score=affinity)
+        features.update(bias=1.0, genre_affinity=affinity, source_score=affinity, item_similarity=affinity)
         examples.append(TrainingExample(
             now + timedelta(minutes=index), f"u{index}", f"w{index}", "FOR_YOU",
             features, float(index > 50),

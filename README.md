@@ -182,7 +182,7 @@ Final Recommendation
 | **Duplicate Filter** | 현재 비개인화 영역 노출 목록 | 중복 추천으로 인한 슬롯 기회비용 방지 |
 | **Temporal xQuAD** | Ranker Score + 과거 노출 이력 | 과노출 도서 집중 완화 및 long-tail 노출 보완 [2] |
 | **ε-greedy Exploration** | 추천 가능 후보군 | 저노출 도서 노출 + OPE·향후 정책 학습용 로그 확보 [3] |
-
+* Exploration은 캐러셀 특성에 따라 선택 적용. 유사도 등 캐러셀 고유 기준이 중요한 경우 무작위 노출이 추천 품질을 훼손할 수 있으므로, 미적용하거나 해당 Constraint를 만족하는 후보군 내부에서만 수행.
 ### 각주
 
 **[1]** Ferrari Dacrema et al. (2019); Rendle et al. (2020)  

@@ -10,6 +10,7 @@ from .adapters.memory import (
 )
 from .config import Settings
 from .core.candidates import CandidateGenerator
+from .core.constraints import CarouselConstraint
 from .core.eligibility import EligibilityFilters
 from .core.orchestrator import RecommendationOrchestrator
 from .core.ranking import HeuristicRanker, LinearModelRanker
@@ -35,6 +36,7 @@ def build_container(settings: Settings | None = None) -> Container:
         policies=StaticPolicyProvider(settings),
         candidates=CandidateGenerator(catalog, filters),
         ranker=_build_ranker(settings),
+        constraints=CarouselConstraint(settings.similarity_threshold),
         filters=filters,
         reranker=TemporalXQuAD(),
         slate=SlateComposer(),

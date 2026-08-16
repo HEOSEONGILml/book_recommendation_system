@@ -6,6 +6,7 @@ import uuid
 from ..domain import Recommendation, RecommendationResult, RequestContext
 from ..ports import PolicyProvider, Ranker, UserRepository
 from .candidates import CandidateGenerator
+from .constraints import CarouselConstraint
 from .eligibility import EligibilityFilters
 from .slate import SlateComposer
 from .reranking import TemporalXQuAD
@@ -18,6 +19,7 @@ class RecommendationOrchestrator:
         policies: PolicyProvider,
         candidates: CandidateGenerator,
         ranker: Ranker,
+        constraints: CarouselConstraint,
         filters: EligibilityFilters,
         reranker: TemporalXQuAD,
         slate: SlateComposer,
@@ -27,6 +29,7 @@ class RecommendationOrchestrator:
         self.policies = policies
         self.candidates = candidates
         self.ranker = ranker
+        self.constraints = constraints
         self.filters = filters
         self.reranker = reranker
         self.slate = slate
@@ -51,8 +54,11 @@ class RecommendationOrchestrator:
         self._check_deadline(started)
 
         stage_started = time.perf_counter()
+        constrained, constraint_count = self.constraints.apply(generated, context)
+        if context.carousel_type == "LIBRARY_SIMILAR":
+            exploration_universe = [candidate.item for candidate in constrained]
         deduplicated, duplicate_count = self.filters.remove_non_personalized_duplicates(
-            generated, context
+            constrained, context
         )
         self.reranker.apply(deduplicated, profile, policy, context.now)
         selected = self.slate.compose(deduplicated, exploration_universe, context, policy)
@@ -79,6 +85,7 @@ class RecommendationOrchestrator:
             diagnostics={
                 "generated_candidates": len(generated),
                 "duplicates_removed": duplicate_count,
+                "constraint_filtered": constraint_count,
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
                 **timings,
             },

@@ -5,6 +5,7 @@ from recommendation_service.adapters.memory import (
 )
 from recommendation_service.config import Settings
 from recommendation_service.core.candidates import CandidateGenerator
+from recommendation_service.core.constraints import CarouselConstraint
 from recommendation_service.core.eligibility import EligibilityFilters
 from recommendation_service.core.orchestrator import RecommendationOrchestrator
 from recommendation_service.core.ranking import HeuristicRanker
@@ -19,7 +20,8 @@ def build(profile: UserProfile, epsilon: float = 1.0) -> RecommendationOrchestra
         users=InMemoryUserRepository([profile]),
         policies=StaticPolicyProvider(Settings(epsilon=epsilon)),
         candidates=CandidateGenerator(InMemoryCatalogRepository(sample_catalog()), filters),
-        ranker=HeuristicRanker(), filters=filters, reranker=TemporalXQuAD(), slate=SlateComposer(),
+        ranker=HeuristicRanker(), constraints=CarouselConstraint(0.55),
+        filters=filters, reranker=TemporalXQuAD(), slate=SlateComposer(),
     )
 
 
@@ -41,10 +43,11 @@ def test_duplicate_filter_temporal_xquad_and_exploration() -> None:
     assert {"feature_ms", "candidate_ms", "ranker_ms", "rerank_ms"} <= result.diagnostics.keys()
 
 
-def test_cold_start_uses_onboarding_genres() -> None:
-    profile = UserProfile("new", onboarding_genres={"경제"})
+def test_library_similar_applies_similarity_constraint() -> None:
+    profile = UserProfile("u2", library_work_ids={"w_005"})
     result = build(profile, epsilon=0).recommend(RequestContext(
-        "r2", "new", "s2", "INTEREST_COLD_START", 5,
+        "r2", "u2", "s2", "LIBRARY_SIMILAR", 5,
     ))
     assert result.recommendations
-    assert all(rec.candidate.item.genre == "경제" for rec in result.recommendations)
+    assert all(rec.candidate.source_score >= 0.55 for rec in result.recommendations)
+    assert result.diagnostics["constraint_filtered"] >= 0

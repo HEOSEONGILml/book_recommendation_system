@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from math import sqrt
+
 from ..domain import Candidate, CandidateSource, Item, RequestContext, UserProfile
 from ..ports import CatalogRepository
 from .eligibility import EligibilityFilters
@@ -15,11 +17,11 @@ class CandidateGenerator:
     def generate(
         self, profile: UserProfile, context: RequestContext, limit: int = 100
     ) -> tuple[list[Candidate], list[Item]]:
-        if context.carousel_type == "INTEREST_COLD_START":
-            retrieved = self.catalog.cold_start_candidates(profile.onboarding_genres, limit)
+        if context.carousel_type == "LIBRARY_SIMILAR":
+            retrieved = self.catalog.similar_candidates(profile.library_work_ids, limit)
             eligible = self.filters.catalog(retrieved, profile, context)
-            scored = self._cold_start(eligible, profile, limit)
-            source = CandidateSource.COLD_START
+            scored = self._content_similarity(eligible, profile, limit)
+            source = CandidateSource.CONTENT
         else:
             retrieved = self.catalog.personalized_candidates(profile, limit)
             eligible = self.filters.catalog(retrieved, profile, context)
@@ -56,15 +58,22 @@ class CandidateGenerator:
         ]
         return sorted(scored, key=lambda pair: pair[1], reverse=True)[:limit]
 
-    @staticmethod
-    def _cold_start(
+    def _content_similarity(
+        self,
         items: list[Item], profile: UserProfile, limit: int
     ) -> list[tuple[Item, float]]:
-        if not profile.onboarding_genres:
+        anchors = [self.catalog.get_item(work_id) for work_id in profile.library_work_ids]
+        anchors = [item for item in anchors if item is not None]
+        if not anchors:
             return []
         matched = [
-            (item, 0.75 + 0.25 * item.popularity)
+            (item, max(self._cosine(item.embedding, anchor.embedding) for anchor in anchors))
             for item in items
-            if item.genre in profile.onboarding_genres
         ]
         return sorted(matched, key=lambda pair: pair[1], reverse=True)[:limit]
+
+    @staticmethod
+    def _cosine(left: tuple[float, ...], right: tuple[float, ...]) -> float:
+        numerator = sum(a * b for a, b in zip(left, right, strict=True))
+        denominator = sqrt(sum(a * a for a in left)) * sqrt(sum(b * b for b in right))
+        return numerator / denominator if denominator else 0.0

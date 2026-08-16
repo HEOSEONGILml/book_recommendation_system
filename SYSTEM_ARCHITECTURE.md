@@ -2,10 +2,10 @@
 
 ## 1. 설계 범위
 
-새 `README.md.md`의 두 목표를 실제 서비스로 제공하는 구조를 설명한다.
+새 `README.md`의 두 목표를 실제 서비스로 제공하는 구조를 설명한다.
 
 1. 비개인화 영역에서 만들어진 노출 편향과 중복 추천을 완화한다.
-2. 가입 시 선택한 관심 분야로 신규 회원 Cold-start를 개선한다.
+2. 공통 Ranker의 효과가 약한 캐러셀에 데이터 기반 제약을 적용한다.
 
 추천 API, 후보 생성, Ranker A/B/C, Duplicate Filter, Temporal xQuAD, ε-greedy와 학습 파이프라인을 구현 범위로 둔다. 인증, 회원·도서 DB, 행동 이벤트 수집 서버와 메시지 브로커는 기존 백엔드/데이터 시스템이 제공한다고 가정한다.
 
@@ -23,8 +23,9 @@ Backend API / BFF
 │   └─ Orchestrator                                      │
 │       ├─ Candidate Generator                           │
 │       │   ├─ 개인화: CF + Content                     │
-│       │   └─ Cold-start: Category + Popularity         │
+│       │   └─ 서재 유사: Text Embedding + ANN          │
 │       ├─ Ranker: A0 / A / B / C                       │
+│       ├─ Carousel-specific Constraint                  │
 │       ├─ Duplicate Filter                              │
 │       ├─ Temporal xQuAD                                │
 │       └─ ε-greedy Exploration                          │
@@ -54,13 +55,14 @@ WebSocket 대신 내부 HTTP를 사용한다. 캐러셀은 요청 하나에 결�
 | Orchestrator | 추천 단계 실행 순서 제어 | `core/orchestrator.py` |
 | Candidate Generator | 캐러셀별 후보 생성 | `core/candidates.py` |
 | Ranker | 공통 feature를 A0/A/B/C로 점수화 | `core/ranking.py`, `core/ml_rankers.py` |
+| Carousel Constraint | 유사 도서 캐러셀의 최소 similarity 적용 | `core/constraints.py` |
 | Duplicate Filter | 현재 비개인화 영역과 같은 작품 제거 | `core/eligibility.py` |
 | Temporal xQuAD | 관련성과 시간 감쇠된 노출 공정성 결합 | `core/reranking.py` |
 | ε-greedy | 낮은 확률로 후보를 무작위 노출하고 propensity 기록 | `core/slate.py` |
 | Training | 시간 분할, A/B/C 학습과 평가 | `training/` |
 | Repository Interface | 실제 저장 기술과 추천 로직 분리 | `ports.py` |
 
-각 단계는 Orchestrator가 생성하지 않고 `container.py`에서 주입한다. Ranker만 바꾸고 Candidate·Filter·xQuAD를 고정하거나, Ranker를 고정한 채 xQuAD만 실험하기 위한 구조다.
+각 단계는 Orchestrator가 생성하지 않고 `container.py`에서 주입한다. Ranker, 캐러셀 제약, Duplicate Filter와 xQuAD를 한 번에 하나씩 바꿔 효과를 분리하기 위한 구조다.
 
 ## 4. 온라인 요청 흐름
 
@@ -83,12 +85,13 @@ X-Request-Id: r_123
 처리 순서는 다음과 같다.
 
 1. User/Catalog Provider에서 profile과 추천 가능한 도서를 읽는다.
-2. `FOR_YOU`는 장기 이용 이력과 콘텐츠 feature를, `INTEREST_COLD_START`는 onboarding 관심 분야와 분야 내 인기도를 사용한다.
+2. `FOR_YOU`는 사전 계산된 CF top-K를, `LIBRARY_SIMILAR`는 서재 작품 embedding 기준 ANN top-K를 사용한다.
 3. Ranker가 후보의 관련성 점수를 계산한다.
-4. 비개인화 영역에서 이미 노출된 작품을 제거한다.
-5. Temporal xQuAD가 반복 노출이 적은 도서를 보완한다.
-6. ε 확률로 한 슬롯을 탐색 후보로 교체하고 선택 확률을 기록한다.
-7. 작품×포맷 ID, 위치, 추천 사유와 model/feature/policy version을 반환한다.
+4. `LIBRARY_SIMILAR`에서는 분석으로 정한 `item_similarity ≥ τ` 조건을 적용한다.
+5. 비개인화 영역에서 이미 노출된 작품을 제거한다.
+6. Temporal xQuAD가 반복 노출이 적은 도서를 보완한다.
+7. ε 확률로 한 슬롯을 탐색 후보로 교체하고 선택 확률을 기록한다.
+8. 작품×포맷 ID, 위치, 추천 사유와 model/feature/policy version을 반환한다.
 
 `non_personalized_work_ids`를 요청에 포함한 이유는 추천 서비스가 현재 화면 전체를 직접 조회하지 않게 하기 위해서다. 화면을 구성하는 백엔드가 이미 알고 있는 정보를 전달하므로 별도 DB 조회가 필요 없다.
 
@@ -98,12 +101,12 @@ X-Request-Id: r_123
 
 | 데이터 | 필드 예시 | 사용 |
 | --- | --- | --- |
-| User | user_id, age, onboarding_genres, 장기 genre affinity | 후보·Ranker |
+| User | user_id, age, library_work_ids, 장기 genre affinity | 후보·Ranker |
 | Item | work_id, format_id, genre, author, popularity, text embedding, 판권 | 후보·필터 |
 | Exposure | user_id, work_id, 영역, 위치, timestamp, policy, propensity | xQuAD·OPE |
 | Outcome | impression 이후 일정 기간 내 consumed 여부 | Ranker label |
 
-README에서 소비 신호 가설이 유의하지 않은 것으로 가정했으므로 click/start/dwell/complete를 별도 multi-task head로 예측하지 않는다. 대신 노출 후 정의된 기간 안에 유효 소비가 발생했는지를 `consumed` label로 둔다. 실제 환경에서는 열람 시작 또는 최소 독서 시간을 조합해 이 label을 정할 수 있다.
+Ranker는 노출 후 정의된 기간 안에 유효 소비가 발생했는지를 `consumed` label로 학습한다. 캐러셀별 Ranker 효과 차이는 `rank_score × carousel_type` 상호작용 분석으로 검정하고, 차이가 없다면 공통 Ranker만 유지한다. 차이가 있는 캐러셀도 바로 별도 모델로 분리하지 않고 목적 신호의 임계값 제약부터 검증한다.
 
 ## 6. Ranker 학습과 배포
 
@@ -145,6 +148,12 @@ Arm B/C는 데이터가 없어서 제외한 것이 아니라 가정한 schema로
 `training/schedule.py`의 `RetrainingPolicy`가 이 판단을 코드로 제공한다. 실제 시간 기반 실행은 Airflow 등 배치 오케스트레이터가 담당한다고 가정한다. 고정 주기만 사용하지 않고 데이터량과 drift를 함께 보는 이유는 변화가 없는데 불필요하게 학습하거나 급격한 변화에 일주일간 대응하지 못하는 일을 줄이기 위해서다. 임계값은 초기 가정이며 운영 데이터로 조정한다.
 
 ## 7. Temporal xQuAD와 Exploration
+
+### Carousel-specific Constraint
+
+`LIBRARY_SIMILAR` 후보에는 서재 작품과의 최대 cosine similarity가 `τ` 이상인 조건을 Ranker 뒤에서 적용한다. 기본 `τ=0.55`는 자유 가정이며 실제 로그의 similarity–소비 반응곡선을 holdout에서 검증해 갱신한다. 임계값을 Ranker 내부 feature로만 넣지 않은 이유는 최소 유사성이라는 캐러셀 고유 의미를 명시적으로 보장하고 Ranker와 독립적으로 실험하기 위해서다.
+
+제약으로 후보가 부족해지면 임계값을 요청 중 임의로 낮추지 않고 반환 개수를 줄이거나 백엔드 기본 목록을 사용한다. 임계값을 동적으로 낮추면 실험군의 정책이 불명확해지기 때문이다.
 
 Temporal xQuAD는 Ranker 관련성과 사용자의 과거 노출 이력을 결합한다.
 

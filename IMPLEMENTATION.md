@@ -2,11 +2,12 @@
 
 ## 1. 구현 기준
 
-`README.md.md`의 새 설계를 실행 가능한 형태로 구현했다. 이전의 소비 행동 multi-task Utility와 최근 행동 stream profile은 제거하고 다음 흐름으로 변경했다.
+`README.md`의 설계를 실행 가능한 형태로 구현했다. 캐러셀별 후보와 제약을 독립 모듈로 두고 다음 순서로 처리한다.
 
 ```text
 캐러셀별 Candidate
 → Ranker A0/A/B/C
+→ Carousel-specific Constraint
 → 비개인화 영역 Duplicate Filter
 → Temporal xQuAD
 → ε-greedy Exploration
@@ -35,9 +36,10 @@ uv run ruff check .
 
 | 코드 | 구현 | 선택 이유 |
 | --- | --- | --- |
-| `core/candidates.py` | 개인화와 onboarding Cold-start 후보 | 서로 다른 추천 목표를 후보 단계에서 분리 |
+| `core/candidates.py` | CF 개인화와 서재 도서 기반 콘텐츠 후보 | 캐러셀 목적에 맞는 retrieval 사용 |
 | `core/ranking.py` | A0와 Arm A 추론, 공통 feature | 단순 baseline과 ML 모델 비교 |
 | `core/ml_rankers.py` | Arm B/C 추론 | 동일 Ranker 계약으로 교체 가능 |
+| `core/constraints.py` | 유사 도서 캐러셀의 similarity 임계값 | Ranker가 약한 캐러셀의 최소 조건 보장 |
 | `core/eligibility.py` | 판권·연령과 비개인화 중복 제거 | 점수와 무관한 제약을 명시적으로 처리 |
 | `core/reranking.py` | Temporal xQuAD | 반복 노출 편향을 Ranker와 분리해 조절 |
 | `core/slate.py` | ε-greedy와 propensity | 저노출 도서 및 OPE용 로그 확보 |
@@ -50,7 +52,7 @@ uv run ruff check .
 $body = @{
   user_id = "u_1"
   session_id = "s_1"
-  carousel_type = "INTEREST_COLD_START"
+  carousel_type = "LIBRARY_SIMILAR"
   limit = 10
   non_personalized_work_ids = @("w_001", "w_010")
 } | ConvertTo-Json
@@ -63,7 +65,7 @@ Invoke-RestMethod `
   -Body $body
 ```
 
-`FOR_YOU`는 개인화 후보를, `INTEREST_COLD_START`는 가입 관심 분야 후보를 사용한다. 현재 sample user는 로컬 실행을 위해 소설·경제를 관심 분야로 가정한다.
+`FOR_YOU`는 CF 방식의 개인화 후보를, `LIBRARY_SIMILAR`는 서재에 담긴 작품 embedding과 가까운 콘텐츠 후보를 사용한다. 로컬 sample user는 `w_005`, `w_011`을 서재 작품으로 가정한다.
 
 ## 5. 모델 학습
 
@@ -71,7 +73,7 @@ CSV schema는 다음과 같이 가정한다.
 
 ```text
 occurred_at,user_id,work_id,carousel_type,
-bias,source_score,genre_affinity,onboarding_match,popularity,consumed
+bias,source_score,genre_affinity,item_similarity,popularity,consumed
 ```
 
 `consumed`는 노출 후 정해진 관측 기간 안에 유효 소비가 발생했는지를 나타내는 이진 label이다.
@@ -117,8 +119,9 @@ Arm A는 직접 구현한 Logistic Regression, Arm B는 LightGBM classifier, Arm
 | `MILLIE_XQUAD_LAMBDA` | `0.2` | 관련성 대비 노출 편향 완화 강도 |
 | `MILLIE_EPSILON` | `0.05` | 탐색 슬롯을 사용하는 확률 |
 | `MILLIE_REQUEST_TIMEOUT_MS` | `250` | 추천 서비스 내부 deadline |
+| `MILLIE_SIMILARITY_THRESHOLD` | `0.55` | `LIBRARY_SIMILAR` 최소 cosine similarity |
 
-λ와 ε은 코드의 정답값이 아니라 A/B Test 대상이다. 응답에 model/feature/policy version과 exploration propensity를 내려 실험 로그와 연결한다.
+λ, ε과 similarity threshold는 코드의 정답값이 아니라 분석·A/B Test 대상이다. 응답에 model/feature/policy version과 exploration propensity를 내려 실험 로그와 연결한다.
 
 ## 7. 응답 지연 고려
 

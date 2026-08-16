@@ -5,10 +5,10 @@ import math
 from collections.abc import Iterable
 from pathlib import Path
 
-from ..domain import Candidate, RequestContext, UserProfile
+from ..domain import Candidate, CandidateSource, RequestContext, UserProfile
 
 
-FEATURE_NAMES = ("bias", "source_score", "genre_affinity", "onboarding_match", "popularity")
+FEATURE_NAMES = ("bias", "source_score", "genre_affinity", "item_similarity", "popularity")
 
 
 def build_features(candidate: Candidate, profile: UserProfile) -> dict[str, float]:
@@ -16,7 +16,7 @@ def build_features(candidate: Candidate, profile: UserProfile) -> dict[str, floa
         "bias": 1.0,
         "source_score": candidate.source_score,
         "genre_affinity": profile.genre_affinity.get(candidate.item.genre, 0.0),
-        "onboarding_match": float(candidate.item.genre in profile.onboarding_genres),
+        "item_similarity": candidate.source_score if CandidateSource.CONTENT in candidate.sources else 0.0,
         "popularity": candidate.item.popularity,
     }
 
@@ -31,7 +31,7 @@ class HeuristicRanker:
                 1.0,
                 0.55 * candidate.source_score
                 + 0.25 * candidate.features["genre_affinity"]
-                + 0.20 * candidate.features["onboarding_match"],
+                + 0.20 * candidate.features["item_similarity"],
             )
 
 

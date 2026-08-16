@@ -14,6 +14,7 @@ class Settings:
     xquad_lambda: float = 0.2
     epsilon: float = 0.05
     request_timeout_ms: int = 250
+    similarity_threshold: float = 0.55
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -26,4 +27,5 @@ class Settings:
             xquad_lambda=float(os.getenv("MILLIE_XQUAD_LAMBDA", "0.2")),
             epsilon=float(os.getenv("MILLIE_EPSILON", "0.05")),
             request_timeout_ms=int(os.getenv("MILLIE_REQUEST_TIMEOUT_MS", "250")),
+            similarity_threshold=float(os.getenv("MILLIE_SIMILARITY_THRESHOLD", "0.55")),
         )

@@ -8,7 +8,7 @@ def test_recommendation_api() -> None:
         "/v1/recommendations/carousels",
         headers={"X-Request-Id": "r_api"},
         json={
-            "user_id": "u1", "session_id": "s1", "carousel_type": "INTEREST_COLD_START",
+            "user_id": "u1", "session_id": "s1", "carousel_type": "LIBRARY_SIMILAR",
             "limit": 5, "non_personalized_work_ids": ["w_001"],
         },
     )
